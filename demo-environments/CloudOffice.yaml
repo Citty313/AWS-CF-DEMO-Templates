@@ -1,0 +1,268 @@
+Description:
+    This template deploys a VPC including a NAT gateway, a AWS managed Microsoft Active Directory domain and a FSx file system.
+
+Parameters:
+
+    EnvironmentName:
+        Description: An environment name that will be prefixed to resource names
+        Type: String
+
+
+    VpcCIDR:
+        Description: Please enter the IP range (CIDR notation) for this VPC
+        Type: String
+        Default: 10.0.0.0/16
+
+    DomainName:
+        Description: The name of the domain.
+        Type: String
+        Default: yourdomain.com
+
+    DomainShortName:
+        Description: The short name of the domain.
+        Type: String
+        Default: yourdomain
+
+    DomainAdminPassword:
+        Description: The initial domain admin pw, change and keep secret after creation!!
+        Type: String
+
+    PublicSubnet1CIDR:
+        Description: Please enter the IP range (CIDR notation) for the public subnet in AZ-A
+        Type: String
+        Default: 10.0.0.0/24
+
+    PublicSubnet2CIDR:
+        Description: Please enter the IP range (CIDR notation) for the public subnet AZ-B
+        Type: String
+        Default: 10.0.2.0/24
+
+    PrivateSubnet1CIDR:
+        Description: Please enter the IP range (CIDR notation) for the public subnet in AZ-A
+        Type: String
+        Default: 10.0.100.0/23
+
+    PrivateSubnet2CIDR:
+        Description: Please enter the IP range (CIDR notation) for the public subnet AZ-B
+        Type: String
+        Default: 10.0.102.0/23
+
+
+Resources:
+
+    VPC:
+        Type: AWS::EC2::VPC
+        Properties:
+            CidrBlock: !Ref VpcCIDR
+            EnableDnsSupport: 'true'
+            EnableDnsHostnames: 'true'
+            Tags:
+                - Key: Name
+                  Value: !Ref EnvironmentName
+
+    InternetGateway:
+        Type: AWS::EC2::InternetGateway
+        Properties:
+            Tags:
+                - Key: Name
+                  Value: !Ref EnvironmentName
+
+
+    InternetGatewayAttachment:
+        Type: AWS::EC2::VPCGatewayAttachment
+        Properties:
+            InternetGatewayId: !Ref InternetGateway
+            VpcId: !Ref VPC
+
+    PublicSubnet1:
+        Type: AWS::EC2::Subnet
+        Properties:
+            VpcId: !Ref VPC
+            AvailabilityZone: !Select [ 0, !GetAZs '' ]
+            CidrBlock: !Ref PublicSubnet1CIDR
+            MapPublicIpOnLaunch: false
+            Tags:
+                - Key: Name
+                  Value: !Sub ${EnvironmentName} Public Subnet AZ-A
+
+    PublicSubnet2:
+        Type: AWS::EC2::Subnet
+        Properties:
+            VpcId: !Ref VPC
+            AvailabilityZone: !Select [ 1, !GetAZs '' ]
+            CidrBlock: !Ref PublicSubnet2CIDR
+            MapPublicIpOnLaunch: false
+            Tags:
+                - Key: Name
+                  Value: !Sub ${EnvironmentName} Public Subnet AZ-B
+
+    PrivateSubnet1:
+        Type: AWS::EC2::Subnet
+        Properties:
+            VpcId: !Ref VPC
+            AvailabilityZone: !Select [ 0, !GetAZs '' ]
+            CidrBlock: !Ref PrivateSubnet1CIDR
+            MapPublicIpOnLaunch: false
+            Tags:
+                - Key: Name
+                  Value: !Sub ${EnvironmentName} Privat Subnet AZ-A
+
+    PrivateSubnet2:
+        Type: AWS::EC2::Subnet
+        Properties:
+            VpcId: !Ref VPC
+            AvailabilityZone: !Select [ 1, !GetAZs '' ]
+            CidrBlock: !Ref PrivateSubnet2CIDR
+            MapPublicIpOnLaunch: false
+            Tags:
+                - Key: Name
+                  Value: !Sub ${EnvironmentName} Privat Subnet AZ-B
+
+    NatGateway1EIP:
+        Type: AWS::EC2::EIP
+        DependsOn: InternetGatewayAttachment
+        Properties:
+            Domain: vpc
+
+    NatGateway1:
+        Type: AWS::EC2::NatGateway
+        Properties:
+            AllocationId: !GetAtt NatGateway1EIP.AllocationId
+            SubnetId: !Ref PublicSubnet1
+
+    PublicRouteTable:
+        Type: AWS::EC2::RouteTable
+        Properties:
+            VpcId: !Ref VPC
+            Tags:
+                - Key: Name
+                  Value: !Sub ${EnvironmentName} Public Routes
+
+    DefaultPublicRoute:
+        Type: AWS::EC2::Route
+        DependsOn: InternetGatewayAttachment
+        Properties:
+            RouteTableId: !Ref PublicRouteTable
+            DestinationCidrBlock: 0.0.0.0/0
+            GatewayId: !Ref InternetGateway
+
+    PublicSubnet1RouteTableAssociation:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        Properties:
+            RouteTableId: !Ref PublicRouteTable
+            SubnetId: !Ref PublicSubnet1
+
+    PublicSubnet2RouteTableAssociation:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        Properties:
+            RouteTableId: !Ref PublicRouteTable
+            SubnetId: !Ref PublicSubnet2
+
+    PrivateRouteTable1:
+        Type: AWS::EC2::RouteTable
+        Properties:
+            VpcId: !Ref VPC
+            Tags:
+                - Key: Name
+                  Value: !Sub ${EnvironmentName} Private Routes AZ-A
+
+    DefaultPrivateRoute1:
+        Type: AWS::EC2::Route
+        Properties:
+            RouteTableId: !Ref PrivateRouteTable1
+            DestinationCidrBlock: 0.0.0.0/0
+            NatGatewayId: !Ref NatGateway1
+
+    PrivateRouteTable2:
+        Type: AWS::EC2::RouteTable
+        Properties:
+            VpcId: !Ref VPC
+            Tags:
+                - Key: Name
+                  Value: !Sub ${EnvironmentName} Private Routes AZ-B
+
+    DefaultPrivateRoute2:
+        Type: AWS::EC2::Route
+        Properties:
+            RouteTableId: !Ref PrivateRouteTable2
+            DestinationCidrBlock: 0.0.0.0/0
+            NatGatewayId: !Ref NatGateway1
+
+    PrivateSubnet1RouteTableAssociation:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        Properties:
+            RouteTableId: !Ref PrivateRouteTable1
+            SubnetId: !Ref PrivateSubnet1
+
+
+    PrivateSubnet2RouteTableAssociation:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        Properties:
+            RouteTableId: !Ref PrivateRouteTable2
+            SubnetId: !Ref PrivateSubnet2
+
+    PrivateDBSubnetGroup0:
+        Type: "AWS::RDS::DBSubnetGroup"
+        Properties:
+            DBSubnetGroupName: private services
+            DBSubnetGroupDescription: "Subnets in AZ A and B"
+            SubnetIds:
+                - !Ref PrivateSubnet1
+                - !Ref PrivateSubnet2
+
+
+    DomainService:
+        Type: AWS::DirectoryService::MicrosoftAD
+        Properties:
+          Name: !Ref DomainName
+          Password: !Ref DomainAdminPassword
+          ShortName: !Ref DomainShortName
+          Edition: Standard
+          VpcSettings:
+              SubnetIds:
+                   - !Ref PrivateSubnet1
+                   - !Ref PrivateSubnet2
+              VpcId:
+                !Ref VPC
+
+    SgFSxWindowsFileServer01:
+            Type: AWS::EC2::SecurityGroup
+            Properties:
+              GroupName: "FSxWindowsFileServer01"
+              VpcId: !Ref VPC
+              GroupDescription: "SecurityGroup for FSx Windows File Server 01"
+              SecurityGroupIngress:
+              - IpProtocol: tcp
+                FromPort: 445
+                ToPort: 445
+                CidrIp: !Ref VpcCIDR
+
+    FileServer01:
+        Type: AWS::FSx::FileSystem
+        Properties:
+          FileSystemType: WINDOWS
+          StorageCapacity: 32
+          StorageType: SSD
+          SubnetIds:
+            - !Ref PrivateSubnet1
+          SecurityGroupIds:
+            - !Ref SgFSxWindowsFileServer01
+          Tags:
+            - Key: Name
+              Value: WindowsFileServer01
+          WindowsConfiguration:
+            ActiveDirectoryId: !Ref DomainService
+            ThroughputCapacity: 8
+            WeeklyMaintenanceStartTime: '4:16:30'
+            DailyAutomaticBackupStartTime: '01:00'
+            AutomaticBackupRetentionDays: 2
+            DeploymentType: SINGLE_AZ_1
+            CopyTagsToBackups: false
+
+Outputs:
+    VPC:
+        Description: A reference to the created VPC
+        Value: !Ref VPC
+
+    FileSystemId:
+      Value: !Ref FileServer01
